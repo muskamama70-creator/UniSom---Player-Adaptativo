@@ -1,0 +1,7 @@
+{
+  "name": "UniSom - Player Adaptativo",
+  "description": "Um player de música inovador para pessoas com audição unilateral. Monitora o ambiente em tempo real para destacar vozes e alertar sobre conversas próximas ou o nome do usuário.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
