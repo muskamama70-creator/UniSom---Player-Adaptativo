@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Song, GuardianStatus, GuardianConfig } from './types';
+import { Song, GuardianStatus, GuardianConfig, AlertLog } from './types';
 import { audioEngine } from './services/audioService';
 import { guardianAI } from './services/geminiService';
 import Visualizer from './components/Visualizer';
@@ -22,6 +22,7 @@ const App: React.FC = () => {
   const [guardianStatus, setGuardianStatus] = useState<GuardianStatus>(GuardianStatus.IDLE);
   const [lastTranscript, setLastTranscript] = useState('');
   const [showSettings, setShowSettings] = useState(false);
+  const [logs, setLogs] = useState<AlertLog[]>([]);
   
   const [config, setConfig] = useState<GuardianConfig>({
     userName: 'Usuário',
@@ -47,6 +48,16 @@ const App: React.FC = () => {
     audioEngine.setMono(config.monoMix);
   }, [config.voiceHighlight, config.monoMix]);
 
+  const addLog = (type: 'NAME' | 'VOICE', message: string) => {
+    const newLog: AlertLog = {
+      id: Math.random().toString(36).substr(2, 9),
+      timestamp: new Date(),
+      type,
+      message,
+    };
+    setLogs(prev => [newLog, ...prev].slice(0, 10)); // Keep only last 10
+  };
+
   const togglePlay = () => {
     if (isPlaying) {
       audioRef.current?.pause();
@@ -64,7 +75,7 @@ const App: React.FC = () => {
           onVoice: (text) => {
             setLastTranscript(text);
             if (config.adaptiveVolume && text.length > 5) {
-              handleDucking();
+              handleDucking(text);
             }
           },
           onName: () => {
@@ -76,17 +87,23 @@ const App: React.FC = () => {
     setIsPlaying(!isPlaying);
   };
 
-  const handleDucking = () => {
+  const handleDucking = (transcript: string) => {
+    // Only duck if not already ducked
+    if (guardianStatus === GuardianStatus.VOICE_DETECTION) return;
+
     setGuardianStatus(GuardianStatus.VOICE_DETECTION);
+    addLog('VOICE', `Voz detectada: "${transcript.length > 30 ? transcript.substring(0, 30) + '...' : transcript}"`);
     audioEngine.setVolume(0.3);
+    
     setTimeout(() => {
       audioEngine.setVolume(1.0);
       setGuardianStatus(GuardianStatus.LISTENING);
-    }, 4000);
+    }, 5000);
   };
 
   const handleNameAlert = () => {
     setGuardianStatus(GuardianStatus.ALERTING);
+    addLog('NAME', `Seu nome (${config.userName}) foi chamado!`);
     audioRef.current?.pause();
     setIsPlaying(false);
     setTimeout(() => {
@@ -98,7 +115,6 @@ const App: React.FC = () => {
     const nextIndex = (currentSongIndex + 1) % playlist.length;
     setCurrentSongIndex(nextIndex);
     setIsPlaying(true);
-    // Use timeout to ensure source is updated before playing
     setTimeout(() => audioRef.current?.play(), 0);
   };
 
@@ -118,7 +134,6 @@ const App: React.FC = () => {
   const handleAddLocalFiles = (files: FileList) => {
     const newSongs: Song[] = Array.from(files).map((file) => {
       const url = URL.createObjectURL(file);
-      // Clean name: remove extension
       const title = file.name.replace(/\.[^/.]+$/, "");
       return {
         id: Math.random().toString(36).substr(2, 9),
@@ -167,7 +182,7 @@ const App: React.FC = () => {
           {guardianStatus === GuardianStatus.ALERTING && (
             <div className="absolute inset-0 bg-red-600/60 flex flex-col items-center justify-center animate-pulse">
               <i className="fa-solid fa-bell text-6xl mb-4"></i>
-              <p className="text-xl font-bold uppercase tracking-widest">NOME DETECTADO</p>
+              <p className="text-xl font-bold uppercase tracking-widest text-center px-4">Chamada de Voz Detectada</p>
             </div>
           )}
           {guardianStatus === GuardianStatus.VOICE_DETECTION && (
@@ -228,7 +243,39 @@ const App: React.FC = () => {
           {lastTranscript ? (
             <p className="text-sm italic text-slate-300 line-clamp-2">"...{lastTranscript}"</p>
           ) : (
-            <p className="text-sm text-slate-600">Aguardando detecção de som...</p>
+            <p className="text-sm text-slate-600">Ouvindo sons próximos...</p>
+          )}
+        </div>
+      </div>
+
+      {/* Guardian Logs / History Section */}
+      <div className="w-full mt-6 bg-slate-900 rounded-3xl border border-slate-800 p-6">
+        <h3 className="text-xl font-bold flex items-center gap-2 text-white mb-6">
+          <i className="fa-solid fa-history text-blue-500"></i>
+          Histórico de Alertas
+        </h3>
+        <div className="space-y-3 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+          {logs.length === 0 ? (
+            <div className="text-center py-6 text-slate-600 text-sm">
+              <p>Nenhum alerta recente.</p>
+            </div>
+          ) : (
+            logs.map(log => (
+              <div key={log.id} className="flex gap-4 items-start p-3 bg-slate-800/40 rounded-2xl border border-slate-700/30 animate-in fade-in slide-in-from-top-2 duration-300">
+                <div className={`mt-1 w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${log.type === 'NAME' ? 'bg-red-500/20 text-red-500' : 'bg-blue-500/20 text-blue-500'}`}>
+                  <i className={`fa-solid ${log.type === 'NAME' ? 'fa-bell' : 'fa-microphone-lines'} text-sm`}></i>
+                </div>
+                <div className="flex-grow min-w-0">
+                  <div className="flex justify-between items-center mb-1">
+                    <span className={`text-xs font-bold uppercase tracking-wider ${log.type === 'NAME' ? 'text-red-400' : 'text-blue-400'}`}>
+                      {log.type === 'NAME' ? 'Urgente' : 'Informativo'}
+                    </span>
+                    <span className="text-[10px] text-slate-500">{log.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  </div>
+                  <p className="text-sm text-slate-300 break-words">{log.message}</p>
+                </div>
+              </div>
+            ))
           )}
         </div>
       </div>
@@ -262,6 +309,19 @@ const App: React.FC = () => {
         Desenvolvido para acessibilidade auditiva unilateral. <br/> 
         O Guardian AI detecta fala e alerta sobre perigos ou chamados.
       </div>
+
+      <style>{`
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: #334155;
+          border-radius: 10px;
+        }
+      `}</style>
     </div>
   );
 };

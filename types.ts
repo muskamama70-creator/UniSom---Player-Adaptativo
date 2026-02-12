@@ -21,3 +21,10 @@ export interface GuardianConfig {
   voiceHighlight: boolean;
   monoMix: boolean;
 }
+
+export interface AlertLog {
+  id: string;
+  timestamp: Date;
+  type: 'NAME' | 'VOICE';
+  message: string;
+}
